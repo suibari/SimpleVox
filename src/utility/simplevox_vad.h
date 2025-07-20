@@ -11,6 +11,7 @@
 #define SIMPLEVOX_VAD_H_
 
 #include <stdint.h>
+#include <esp_vad.h> // esp-srの正しい型定義をインクルード
 
 namespace simplevox
 {
@@ -77,11 +78,11 @@ namespace simplevox
         int over_length() const { return hangover_ms * sample_rate / 1000; }
     };
 
-    using esp_vad_handle_t = void*;
+    // using esp_vad_handle_t = void*; // 古い定義を削除
     class VadEngine
     {
     private:
-        esp_vad_handle_t vad_inst_ = nullptr;
+        vad_handle_t vad_inst_ = nullptr; // esp-srが提供する正しい型に変更
         VadConfig vad_config_;
         VadState vad_state_;
         int state_count_;

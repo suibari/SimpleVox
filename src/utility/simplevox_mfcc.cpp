@@ -13,6 +13,7 @@
 #include <memory>
 #include <new>
 #include <stdio.h>
+#include <SPIFFS.h>
 
 #include <esp_heap_caps.h>
 #include <esp_dsp.h>
@@ -359,73 +360,72 @@ namespace simplevox
 
     bool MfccEngine::saveFile(const char *path, const MfccFeature &mfcc)
     {
-        auto* file = fopen(path, "wb");
-        if (file == NULL) { return false; }
+        File file = SPIFFS.open(path, FILE_WRITE);
+        if (!file) {
+            printf("Failed to open file for writing\n");
+            return false;
+        }
 
         const auto tag = static_cast<uint8_t>(MfccTag::VERSION1);
-        if (fwrite(&tag, sizeof(tag), 1, file) != 1)
-        {
-            fclose(file); return false;
+        if (file.write(&tag, sizeof(tag)) != sizeof(tag)) {
+            file.close(); return false;
         }
 
-        const int32_t size = mfcc.size();
-        if (fwrite(&size, sizeof(size), 1, file) != 1)
-        {
-            fclose(file); return false;
+        const int32_t frame_num = mfcc.size();
+        if (file.write((uint8_t*)&frame_num, sizeof(frame_num)) != sizeof(frame_num)) {
+            file.close(); return false;
         }
         const int32_t coef_num = mfcc.dimension();
-        if (fwrite(&coef_num, sizeof(coef_num), 1, file) != 1)
-        {
-            fclose(file); return false;
+        if (file.write((uint8_t*)&coef_num, sizeof(coef_num)) != sizeof(coef_num)) {
+            file.close(); return false;
         }
 
-        const auto data_byte = sizeof(*mfcc.feature_);
-        const int data_num = size * coef_num;
-        if (fwrite(mfcc.feature_, data_byte, data_num, file) != data_num)
-        {
-            fclose(file); return false;
+        const size_t data_bytes = sizeof(*mfcc.feature_) * frame_num * coef_num;
+        if (file.write((const uint8_t*)mfcc.feature_, data_bytes) != data_bytes) {
+            file.close(); return false;
         }
 
-        fclose(file);
+        file.close();
         return true;
     }
 
     MfccFeature *MfccEngine::loadFile(const char *path)
     {
-        auto* file = fopen(path, "rb");
-        if (file == NULL) { return nullptr; }
+        File file = SPIFFS.open(path, FILE_READ);
+        if (!file || file.size() == 0) {
+            if (file) file.close();
+            return nullptr;
+        }
 
         MfccTag tag;
-        if (fread(&tag, sizeof(tag), 1, file) != 1)
-        {
-            fclose(file); return nullptr;
+        if (file.read((uint8_t*)&tag, sizeof(tag)) != sizeof(tag)) {
+            file.close(); return nullptr;
         }
 
-        int32_t size, coef_num;
-        if (fread(&size, sizeof(size), 1, file) != 1)
-        {
-            fclose(file); return nullptr;
+        int32_t frame_num, coef_num;
+        if (file.read((uint8_t*)&frame_num, sizeof(frame_num)) != sizeof(frame_num)) {
+            file.close(); return nullptr;
         }
-        if (fread(&coef_num, sizeof(coef_num), 1, file) != 1)
-        {
-            fclose(file); return nullptr;
+        if (file.read((uint8_t*)&coef_num, sizeof(coef_num)) != sizeof(coef_num)) {
+            file.close(); return nullptr;
         }
 
-        MfccFeature* mfcc = new MfccFeature(size, coef_num);
-        if (mfcc == nullptr || mfcc->feature_ == nullptr)
-        {
-            fclose(file); return nullptr;
+        if (frame_num <= 0 || coef_num <= 0) {
+             file.close(); return nullptr;
         }
 
-        const auto data_byte = sizeof(*mfcc->feature_);
-        const int data_num = size * coef_num;
-        if (fread(mfcc->feature_, data_byte, data_num, file) != data_num)
-        {
+        MfccFeature* mfcc = new MfccFeature(frame_num, coef_num);
+        if (mfcc == nullptr || mfcc->feature_ == nullptr) {
+            file.close(); return nullptr;
+        }
+
+        const size_t data_bytes = sizeof(*mfcc->feature_) * frame_num * coef_num;
+        if (file.read((uint8_t*)mfcc->feature_, data_bytes) != data_bytes) {
             delete mfcc;
-            fclose(file); return nullptr;
+            file.close(); return nullptr;
         }
 
-        fclose(file);
+        file.close();
         return mfcc;
     }
 
